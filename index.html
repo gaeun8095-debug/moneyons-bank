@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>머니언즈 은행</title>
+</head>
+<body>
+
+<h1>🏦 머니언즈 은행</h1>
+
+<input id="name" placeholder="이름 입력">
+<button onclick="createAccount()">계좌 생성</button>
+
+<h2>계정 목록</h2>
+<div id="users"></div>
+
+<hr>
+
+<h2 id="currentUser"></h2>
+💰 잔액: <span id="balance">0</span>원<br>
+📉 빚: <span id="debt">0</span>원<br><br>
+
+<input id="amount" type="number" placeholder="금액 입력">
+
+<button onclick="deposit()">입금</button>
+<button onclick="withdraw()">출금</button>
+<button onclick="loan()">대출</button>
+<button onclick="deleteAccount()">계좌 삭제</button>
+
+<hr>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, updateDoc, deleteDoc } 
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBqay3fp3NPl5rkSi9BgDGGhzUVMFRIuUs",
+  authDomain: "moneyons.firebaseapp.com",
+  projectId: "moneyons",
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+let currentUser = null;
+
+// 금액 검증
+function getAmount() {
+  const amount = Number(document.getElementById("amount").value);
+  if (isNaN(amount) || amount <= 0) {
+    alert("올바른 금액 입력");
+    return null;
+  }
+  return amount;
+}
+
+// 유저 목록
+function renderUsers(data) {
+  const div = document.getElementById("users");
+  div.innerHTML = "";
+
+  for (let user in data) {
+    const btn = document.createElement("button");
+    btn.innerText = user;
+    btn.onclick = () => selectUser(user);
+    div.appendChild(btn);
+  }
+}
+
+// 유저 선택
+function selectUser(user) {
+  currentUser = user;
+  localStorage.setItem("bankUser", user);
+  document.getElementById("currentUser").innerText = user + "님의 계좌";
+}
+
+// 계좌 생성
+async function createAccount() {
+  const name = document.getElementById("name").value.trim();
+
+  if (!name) {
+    alert("이름 입력");
+    return;
+  }
+
+  await setDoc(doc(db, "accounts", name), {
+    balance: 0,
+    debt: 0
+  });
+}
+
+// 입금 (빚 먼저 상환)
+async function deposit() {
+  const amountInput = getAmount();
+  if (!amountInput || !currentUser) return;
+
+  const ref = doc(db, "accounts", currentUser);
+  const snap = await getDoc(ref);
+  const data = snap.data();
+
+  let amount = amountInput;
+  let { balance, debt } = data;
+
+  if (debt > 0) {
+    let pay = Math.min(amount, debt);
+    debt -= pay;
+    amount -= pay;
+  }
+
+  balance += amount;
+
+  await updateDoc(ref, { balance, debt });
+}
+
+// 출금 (잔액에서만)
+async function withdraw() {
+  const amount = getAmount();
+  if (!amount || !currentUser) return;
+
+  const ref = doc(db, "accounts", currentUser);
+  const snap = await getDoc(ref);
+  const data = snap.data();
+
+  if (data.balance < amount) {
+    alert("잔액 부족");
+    return;
+  }
+
+  await updateDoc(ref, {
+    balance: data.balance - amount
+  });
+}
+
+// 대출 (빚만 증가)
+async function loan() {
+  const amount = getAmount();
+  if (!amount || !currentUser) return;
+
+  const ref = doc(db, "accounts", currentUser);
+  const snap = await getDoc(ref);
+  const data = snap.data();
+
+  await updateDoc(ref, {
+    debt: data.debt + amount
+  });
+}
+
+// 계좌 삭제
+async function deleteAccount() {
+  if (!currentUser) {
+    alert("계좌 선택 먼저");
+    return;
+  }
+
+  if (!confirm("정말 삭제하시겠습니까?")) return;
+
+  await deleteDoc(doc(db, "accounts", currentUser));
+
+  localStorage.removeItem("bankUser");
+  currentUser = null;
+
+  document.getElementById("currentUser").innerText = "";
+  document.getElementById("balance").innerText = 0;
+  document.getElementById("debt").innerText = 0;
+}
+
+// 실시간 반영
+onSnapshot(collection(db, "accounts"), (snapshot) => {
+  const data = {};
+  snapshot.forEach(doc => {
+    data[doc.id] = doc.data();
+  });
+
+  renderUsers(data);
+
+  if (!currentUser) {
+    const savedUser = localStorage.getItem("bankUser");
+    if (savedUser && data[savedUser]) {
+      currentUser = savedUser;
+    }
+  }
+
+  if (currentUser && data[currentUser]) {
+    const user = data[currentUser];
+
+    document.getElementById("currentUser").innerText = currentUser + "님의 계좌";
+    document.getElementById("balance").innerText = user.balance;
+    document.getElementById("debt").innerText = user.debt;
+  }
+});
+
+window.createAccount = createAccount;
+window.deposit = deposit;
+window.withdraw = withdraw;
+window.loan = loan;
+window.deleteAccount = deleteAccount;
+</script>
+
+</body>
+</html>
